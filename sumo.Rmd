@@ -1,18 +1,20 @@
 ---
-title: "sumo"
+title: "Sumo Oracle"
 output: pdf_document
 ---
 
+# INIT & HELPER FUNCTIONS
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-```
 
 
-```{r}
 library(dplyr)
 library(MASS)
 library(ggplot2)
 library(neuralnet)
+library(caret)
+
 
 sumo.read <- function(csv) {
   data <- tibble(read.csv(csv)) %>%
@@ -20,35 +22,77 @@ sumo.read <- function(csv) {
     mutate(result = as.logical(result))
   return(data)
 }
+
+data.split <- function(data, ratio) {
+  n <- round(nrow(data) * ratio)
+  train <- sample(1:nrow(data), n)
+  test <- setdiff(1:nrow(data), train)
+  return(list(data[train,], data[test,]))
+}
+
+normalize <- function(x) {
+  return( (x - min(x)) / (max(x) - min(x)) )
+}
 ```
+
+# PREDICTIONS
 
 ```{r}
 data <- sumo.read('sumo.csv')
-history <- na.omit(data)
 
 undecided <- filter(data, is.na(result))
 
+history <- na.omit(data)
 
-nn <- neuralnet(result ~ ., history, hidden = 8)
 bin <- glm(result ~ ., history, family = 'binomial')
-
 bin.ans <- predict.glm(bin, undecided)
-nn.ans <- predict(nn, undecided)
-  
+
 if (bin.ans > 0) {
   print('GLM says left.') 
 } else {print('GLM says right.')}
 
-if (nn.ans >= 0.5) {
-  print('NN says left.') 
-} else {print('NN says right.')}
+bin.ans
 ```
 
+# TESTING
+
 ```{r}
-#plot(bin)
-#plot(nn)
-bin.ans
-nn.ans
+data <- sumo.read('sumo.csv')
+spl <- data.split(history, 0.85)
+tr <- spl[[1]]
+ev <- spl[[2]]
+
+bin <- glm(result ~ ., tr, family = 'binomial')
+
+nn <- neuralnet(result ~ ., normalize(tr), hidden = c(4, 2),
+                linear.output = FALSE, act.fct = 'logistic')
+
+
+bin.ans <- predict.glm(bin, ev)
+nn.ans <- predict(nn, ev)
+
+results <- tibble(bin.ans) %>% cbind(nn.ans) %>% cbind(ev$result)
+
+results$bin.ans = sapply(results$bin.ans,
+                         function(x) {if (x > 0) {
+                           TRUE
+                           } else {
+                             FALSE}})
+
+results$nn.ans = sapply(results$nn.ans,
+                         function(x) {if (x >= 0.5) {
+                           TRUE
+                           } else {
+                             FALSE}})
+
+colnames(results) <- c('glm', 'nn', 'truth')
+
+confusionMatrix(as.factor(results$glm), as.factor(results$truth))
+confusionMatrix(as.factor(results$nn), as.factor(results$truth))
+
+plot(bin)
+plot(nn)
+plot(bay)
 ```
 
 
